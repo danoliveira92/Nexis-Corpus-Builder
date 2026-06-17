@@ -258,7 +258,7 @@ def extract_year(date_text):
 
 
 def save_readme(output_folder, category_counters, year_counters):
-    readme_path = output_folder / "README.txt"
+    readme_path = output_folder.parent / f"{output_folder.name}_README.txt"
     total = sum(category_counters.values())
 
     lines = [
