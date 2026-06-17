@@ -1,11 +1,13 @@
+from collections import Counter, defaultdict
+from datetime import datetime
 from pathlib import Path
-from docx import Document
 from xml.etree.ElementTree import Element, SubElement, ElementTree, indent
 import re
-from datetime import datetime
+
+from docx import Document
 
 
-
+MIN_ARTICLES_FOR_SECTION_FOLDER = 3
 
 input_folder = input("Paste the folder containing the DOCX files: ").strip().strip('"')
 output_parent = input("Paste the folder where the corpus folder should be created: ").strip().strip('"')
@@ -21,75 +23,61 @@ PASTA_SAIDA = Path(output_parent) / corpus_name
 
 PASTA_SAIDA.mkdir(parents=True, exist_ok=True)
 
-SECTION_MAP = {
-    "sports": "Sport",
-    "sport": "Sport",
-    "business": "Business",
-    "business day": "Business",
+SOURCE_PREFIXES = {
+    "nyt": "NYT",
+    "guardian": "THEGUARDIAN",
+    "unknown": "UNKNOWN",
+}
+
+SECTION_LABEL_OVERRIDES = {
+    "australia news": "World",
+    "australianews": "World",
+    "world news": "World",
+    "worldnews": "World",
     "world": "World",
-    "middleeast": "World",
-    "americas": "World",
-    "africa": "World",
-    "europe": "World",
-    "asia": "World",
+    "football": "Sports",
+    "sport": "Sports",
+    "sports": "Sports",
+    "media": "Media",
+    "film": "Media",
+    "movies": "Media",
+    "film and movies": "Media",
+    "film & movies": "Media",
     "u.s.": "US",
     "us": "US",
-    "national": "US",
-    "politics": "Politics",
-    "opinion": "Opinion",
-    "editorial": "Opinion",
-    "arts": "Arts",
-    "books": "Books",
-    "style": "Style",
-    "travel": "Travel",
-    "science": "Science",
-    "health": "Health",
-    "technology": "Technology",
-    "tech": "Technology",
-    "climate": "Climate",
-    "real estate": "RealEstate",
-    "food": "Dining",
-    "dining": "Dining",
+    "us news": "US",
+    "usnews": "US",
+    "u.s. news": "US",
     "nyregion": "NYRegion",
     "ny region": "NYRegion",
-    "magazine": "Magazine",
-    "movies": "Movies",
+    "real estate": "RealEstate",
 }
 
-
-CATEGORY_FOLDERS = {
-    "Sport": "Sports",
-    "Business": "Business",
-    "World": "World",
-    "US": "US",
-    "Politics": "Politics",
-    "Opinion": "Opinion",
-    "Arts": "Arts",
-    "Style": "Style",
-    "Travel": "Travel",
-    "Science": "Science",
-    "Health": "Health",
-    "Technology": "Technology",
-    "Climate": "Climate",
-    "RealEstate": "RealEstate",
-    "Dining": "Dining",
-    "NYRegion": "NYRegion",
-    "Magazine": "Magazine",
-    "Books": "Books",
-    "Movies":"Movies",
-    "Other": "Other",
-}
-
-
-BOILERPLATE_STARTS = [
+NYT_BOILERPLATE_STARTS = [
     "the times is committed to",
     "follow the new york times",
     "reporting was contributed by",
 ]
 
-BOILERPLATE_CONTAINS = [
+NYT_BOILERPLATE_CONTAINS = [
     "contributed reporting",
     "by getty images",
+]
+
+GUARDIAN_REMOVE_SECTION_HEADINGS = {
+    "spotlight",
+    "top picks",
+    "rights and freedom",
+    "opinion and analysis",
+    "southern frontlines",
+    "in pictures",
+    "read this",
+}
+
+
+GENERIC_BOILERPLATE_STARTS = [
+    "copyright",
+    "load-date",
 ]
 
 
@@ -155,8 +143,8 @@ def get_paragraphs(docx_path):
     doc = Document(docx_path)
     paragraphs = []
 
-    for p in doc.paragraphs:
-        text = normalize_text(p.text)
+    for paragraph in doc.paragraphs:
+        text = normalize_text(paragraph.text)
 
         if text:
             paragraphs.append(text)
@@ -165,87 +153,10 @@ def get_paragraphs(docx_path):
 
 
 def get_value_after_colon(text):
+    if ":" not in text:
+        return ""
+
     return text.split(":", 1)[1].strip()
-
-
-def is_boilerplate(paragraph):
-    lower = paragraph.lower().strip()
-
-    if lower.startswith("copyright"):
-        return True
-
-    if lower.startswith("load-date"):
-        return True
-
-    if lower == "end of document":
-        return True
-
-    if any(item in lower for item in BOILERPLATE_CONTAINS):
-        return True
-
-    if any(lower.startswith(item) for item in BOILERPLATE_STARTS):
-        return True
-
-    return False
-
-
-def clean_body_paragraphs(paragraphs):
-    cleaned = []
-
-    for paragraph in paragraphs:
-        paragraph = normalize_text(paragraph)
-
-        if not paragraph:
-            continue
-
-        if is_boilerplate(paragraph):
-            continue
-
-        cleaned.append(paragraph)
-
-    return cleaned
-
-
-def extract_abstract_and_full_text(body_paragraphs):
-    highlight = ""
-    body = body_paragraphs
-
-    upper_paragraphs = [p.upper().strip() for p in body_paragraphs]
-
-    if "ABSTRACT" in upper_paragraphs:
-        abstract_index = upper_paragraphs.index("ABSTRACT")
-
-        full_text_index = None
-        if "FULL TEXT" in upper_paragraphs:
-            full_text_index = upper_paragraphs.index("FULL TEXT")
-
-        if full_text_index is not None and full_text_index > abstract_index:
-            abstract_paragraphs = body_paragraphs[abstract_index + 1:full_text_index]
-            body = body_paragraphs[full_text_index + 1:]
-        else:
-            abstract_paragraphs = body_paragraphs[abstract_index + 1:]
-            body = body_paragraphs[:abstract_index]
-
-        abstract_paragraphs = clean_body_paragraphs(abstract_paragraphs)
-        highlight = " ".join(abstract_paragraphs).strip()
-
-    elif "FULL TEXT" in upper_paragraphs:
-        full_text_index = upper_paragraphs.index("FULL TEXT")
-        body = body_paragraphs[full_text_index + 1:]
-
-    body = clean_body_paragraphs(body)
-
-    return highlight, body
-
-
-def classify_section(section):
-    lower = section.lower().strip()
-
-    for keyword, category in SECTION_MAP.items():
-        if keyword in lower:
-            return category
-
-    return "Other"
 
 
 def extract_year(date_text):
@@ -257,61 +168,225 @@ def extract_year(date_text):
     return "Unknown"
 
 
-def save_readme(output_folder, category_counters, year_counters):
-    readme_path = output_folder.parent / f"{output_folder.name}_README.txt"
-    total = sum(category_counters.values())
+def simplify_for_matching(text):
+    return re.sub(r"\s+", " ", text.lower().strip())
 
-    lines = [
-        "Nexis Corpus XML",
-        "",
-        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
-        f"Total texts: {total}",
-        "",
-        "Texts by category:",
-    ]
 
-    for category in sorted(category_counters):
-        lines.append(f"- {category}: {category_counters[category]}")
+def sanitize_filename_part(text, default="Other"):
+    text = normalize_text(str(text))
+    text = text.replace("&", " and ")
+    text = re.sub(r'[<>:"/\\|?*]+', "_", text)
+    text = re.sub(r"\s+", "_", text.strip())
+    text = re.sub(r"_+", "_", text)
+    text = text.strip("._ ")
 
-    lines.extend([
-        "",
-        "Texts by year:",
-    ])
+    return text or default
 
-    for year in sorted(year_counters):
-        lines.append(f"- {year}: {year_counters[year]}")
 
-    readme_path.write_text("\n".join(lines), encoding="utf-8")
-    print("README created:", readme_path)
+def make_section_label(section):
+    if not section:
+        return "Other"
 
-def next_output_path(base_folder, category, counters):
-    folder_name = CATEGORY_FOLDERS.get(category, category)
-    category_folder = base_folder / folder_name
-    category_folder.mkdir(parents=True, exist_ok=True)
+    base_section = normalize_text(section).split(";", 1)[0].strip()
 
-    counters[category] = counters.get(category, 0) + 1
+    if not base_section:
+        return "Other"
 
-    filename = f"NYTNews{category}{counters[category]:03}.xml"
+    key = simplify_for_matching(base_section)
 
-    return category_folder / filename
+    if key in SECTION_LABEL_OVERRIDES:
+        return SECTION_LABEL_OVERRIDES[key]
+
+    words = re.split(r"[\s_/-]+", base_section)
+    label = "".join(word[:1].upper() + word[1:].lower() for word in words if word)
+    label = sanitize_filename_part(label)
+
+    return label or "Other"
+
+
+def detect_source_type(source, paragraphs):
+    search_text = " ".join([source] + paragraphs[:8]).lower()
+
+    if "new york times" in search_text:
+        return "nyt"
+
+    if "guardian" in search_text:
+        return "guardian"
+
+    return "unknown"
+
+
+def log_removal(removed_items, reason, paragraph):
+    paragraph = normalize_text(paragraph)
+
+    if paragraph:
+        removed_items.append({
+            "reason": reason,
+            "text": paragraph,
+        })
+
+
+def generic_removal_reason(paragraph):
+    lower = simplify_for_matching(paragraph)
+
+    if lower == "end of document":
+        return "generic boilerplate: end of document"
+
+    if lower.startswith("length:"):
+        return "generic metadata: length"
+
+    for start in GENERIC_BOILERPLATE_STARTS:
+        if lower.startswith(start):
+            return f"generic boilerplate: {start}"
+
+    return None
+
+
+def nyt_removal_reason(paragraph):
+    lower = simplify_for_matching(paragraph)
+
+    for item in NYT_BOILERPLATE_CONTAINS:
+        if item in lower:
+            return f"NYT boilerplate contains: {item}"
+
+    for start in NYT_BOILERPLATE_STARTS:
+        if lower.startswith(start):
+            return f"NYT boilerplate starts with: {start}"
+
+    return None
+
+
+def guardian_removal_reason(paragraph):
+    lower = simplify_for_matching(paragraph)
+
+    if lower.startswith("related:"):
+        return "Guardian related link"
+
+    return None
+
+
+def get_source_specific_removal_reason(paragraph, source_type):
+    if source_type == "nyt":
+        return nyt_removal_reason(paragraph)
+
+    if source_type == "guardian":
+        return guardian_removal_reason(paragraph)
+
+    return None
+
+
+def clean_metadata_paragraphs(paragraphs, removed_items):
+    cleaned = []
+
+    for paragraph in paragraphs:
+        reason = generic_removal_reason(paragraph)
+
+        if reason:
+            log_removal(removed_items, reason, paragraph)
+            continue
+
+        cleaned.append(paragraph)
+
+    return cleaned
+
+
+def clean_body_paragraphs(paragraphs, source_type, removed_items):
+    cleaned = []
+    index = 0
+
+    while index < len(paragraphs):
+        paragraph = normalize_text(paragraphs[index])
+
+        if not paragraph:
+            index += 1
+            continue
+
+        reason = generic_removal_reason(paragraph)
+
+        if not reason:
+            reason = get_source_specific_removal_reason(paragraph, source_type)
+
+        if reason:
+            log_removal(removed_items, reason, paragraph)
+            index += 1
+            continue
+
+        if source_type == "guardian" and simplify_for_matching(paragraph) in GUARDIAN_REMOVE_SECTION_HEADINGS:
+            heading = paragraph
+            log_removal(removed_items, "Guardian section heading", heading)
+
+            if index + 1 < len(paragraphs):
+                following_paragraph = paragraphs[index + 1]
+                log_removal(
+                    removed_items,
+                    f"Guardian paragraph after section heading: {heading}",
+                    following_paragraph,
+                )
+                index += 2
+            else:
+                index += 1
+
+            continue
+
+        cleaned.append(paragraph)
+        index += 1
+
+    return cleaned
+
+
+def extract_abstract_and_full_text(body_paragraphs, source_type, removed_items):
+    highlight = ""
+    body = body_paragraphs
+    upper_paragraphs = [paragraph.upper().strip() for paragraph in body_paragraphs]
+
+    if "ABSTRACT" in upper_paragraphs:
+        abstract_index = upper_paragraphs.index("ABSTRACT")
+        log_removal(removed_items, "Nexis label", body_paragraphs[abstract_index])
+
+        full_text_index = None
+        if "FULL TEXT" in upper_paragraphs:
+            full_text_index = upper_paragraphs.index("FULL TEXT")
+            log_removal(removed_items, "Nexis label", body_paragraphs[full_text_index])
+
+        if full_text_index is not None and full_text_index > abstract_index:
+            abstract_paragraphs = body_paragraphs[abstract_index + 1:full_text_index]
+            body = body_paragraphs[full_text_index + 1:]
+        else:
+            abstract_paragraphs = body_paragraphs[abstract_index + 1:]
+            body = body_paragraphs[:abstract_index]
+
+        abstract_paragraphs = clean_body_paragraphs(abstract_paragraphs, source_type, removed_items)
+        highlight = " ".join(abstract_paragraphs).strip()
+
+    elif "FULL TEXT" in upper_paragraphs:
+        full_text_index = upper_paragraphs.index("FULL TEXT")
+        log_removal(removed_items, "Nexis label", body_paragraphs[full_text_index])
+        body = body_paragraphs[full_text_index + 1:]
+
+    body = clean_body_paragraphs(body, source_type, removed_items)
+
+    return highlight, body
+
+
+def find_body_index(paragraphs):
+    return next(
+        index for index, paragraph in enumerate(paragraphs)
+        if paragraph.strip().lower() == "body"
+    )
 
 
 def parse_nexis_docx(docx_path):
+    removed_items = []
     paragraphs = get_paragraphs(docx_path)
-
-    body_index = next(
-        i for i, p in enumerate(paragraphs)
-        if p.strip().lower() == "body"
-    )
+    body_index = find_body_index(paragraphs)
 
     before_body = paragraphs[:body_index]
     after_body = paragraphs[body_index + 1:]
 
-    before_body = [
-        p for p in before_body
-        if not is_boilerplate(p)
-        and not p.lower().startswith("length:")
-    ]
+    source_guess = before_body[1] if len(before_body) > 1 else ""
+    source_type = detect_source_type(source_guess, paragraphs)
+
+    before_body = clean_metadata_paragraphs(before_body, removed_items)
 
     headline = before_body[0] if len(before_body) > 0 else ""
     source = before_body[1] if len(before_body) > 1 else ""
@@ -322,8 +397,8 @@ def parse_nexis_docx(docx_path):
     dateline = ""
     highlight = ""
 
-    for i, paragraph in enumerate(before_body):
-        lower = paragraph.lower().strip()
+    for index, paragraph in enumerate(before_body):
+        lower = simplify_for_matching(paragraph)
 
         if lower.startswith("section:"):
             section = get_value_after_colon(paragraph)
@@ -338,24 +413,72 @@ def parse_nexis_docx(docx_path):
             highlight = get_value_after_colon(paragraph)
 
         elif lower == "highlight":
-            if i + 1 < len(before_body):
-                highlight = before_body[i + 1].strip()
+            if index + 1 < len(before_body):
+                highlight = before_body[index + 1].strip()
 
-    abstract_highlight, body_paragraphs = extract_abstract_and_full_text(after_body)
+    abstract_highlight, body_paragraphs = extract_abstract_and_full_text(
+        after_body,
+        source_type,
+        removed_items,
+    )
 
     if abstract_highlight:
         highlight = abstract_highlight
 
+    source_type = detect_source_type(source, paragraphs)
+    source_prefix = SOURCE_PREFIXES.get(source_type, SOURCE_PREFIXES["unknown"])
+    section_label = make_section_label(section)
+    year = extract_year(date)
+
     return {
+        "docx_path": docx_path,
         "headline": headline,
         "source": source,
+        "source_type": source_type,
+        "source_prefix": source_prefix,
         "date": date,
+        "year": year,
         "section": section,
+        "section_label": section_label,
         "author": author,
         "dateline": dateline,
         "highlight": highlight,
         "body": body_paragraphs,
+        "removed_items": removed_items,
     }
+
+
+def choose_final_section(article, section_counts):
+    section_label = article["section_label"]
+
+    if section_label == "Other":
+        return "Other"
+
+    if section_counts[section_label] >= MIN_ARTICLES_FOR_SECTION_FOLDER:
+        return section_label
+
+    return "Other"
+
+
+def build_output_path(base_folder, article, filename_counters):
+    source_prefix = article["source_prefix"]
+    final_section = article["final_section"]
+    year = article["year"]
+
+    folder_name = sanitize_filename_part(final_section)
+    category_folder = base_folder / folder_name
+    category_folder.mkdir(parents=True, exist_ok=True)
+
+    counter_key = (source_prefix, final_section, year)
+    filename_counters[counter_key] += 1
+
+    filename = f"{source_prefix}_{final_section}_{year}_{filename_counters[counter_key]:03}.xml"
+    filename = sanitize_filename_part(filename, default="article.xml")
+
+    if not filename.lower().endswith(".xml"):
+        filename = f"{filename}.xml"
+
+    return category_folder / filename
 
 
 def save_xml(data, output_path):
@@ -380,32 +503,152 @@ def save_xml(data, output_path):
     tree.write(output_path, encoding="utf-8", xml_declaration=True)
 
 
-counters = {}
-year_counters = {}
+def save_readme(output_folder, articles, category_counters, year_counters, source_counters, errors):
+    readme_path = output_folder.parent / f"{output_folder.name}_README.txt"
+    total = len(articles)
 
-docx_files = sorted({p.resolve() for p in PASTA_ENTRADA.glob("*.docx") if p.is_file()})
+    lines = [
+        "Nexis Corpus XML",
+        "",
+        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        f"Total texts: {total}",
+        f"Minimum articles required for a section folder: {MIN_ARTICLES_FOR_SECTION_FOLDER}",
+        "",
+        "Texts by source:",
+    ]
 
-for docx_path in sorted(docx_files):
-    try:
-        data = parse_nexis_docx(docx_path)
+    for source in sorted(source_counters):
+        lines.append(f"- {source}: {source_counters[source]}")
 
-        category = classify_section(data["section"])
-        year = extract_year(data["date"])
-        year_counters[year] = year_counters.get(year, 0) + 1
+    lines.extend([
+        "",
+        "Texts by category:",
+    ])
 
-        output_path = next_output_path(PASTA_SAIDA, category, counters)
+    for category in sorted(category_counters):
+        lines.append(f"- {category}: {category_counters[category]}")
 
-        save_xml(data, output_path)
+    lines.extend([
+        "",
+        "Texts by year:",
+    ])
+
+    for year in sorted(year_counters):
+        lines.append(f"- {year}: {year_counters[year]}")
+
+    if errors:
+        lines.extend([
+            "",
+            "Files not processed:",
+        ])
+
+        for filename, error in errors:
+            lines.append(f"- {filename}: {error}")
+
+    readme_path.write_text("\n".join(lines), encoding="utf-8")
+    print("README created:", readme_path)
+
+
+def save_removal_readme(output_folder, articles, errors):
+    readme_path = output_folder.parent / f"{output_folder.name}_README_2.txt"
+
+    lines = [
+        "Nexis Corpus Removal Log",
+        "",
+        f"Generated on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+        "",
+        "This file lists paragraphs or lines removed from each processed article.",
+    ]
+
+    articles_with_removals = [article for article in articles if article["removed_items"]]
+
+    if not articles_with_removals:
+        lines.extend([
+            "",
+            "No removals were logged.",
+        ])
+
+    for article in articles_with_removals:
+        lines.extend([
+            "",
+            f"Article: {article['docx_path'].name}",
+            f"Output XML: {article.get('output_filename', '')}",
+            f"Source: {article.get('source', '')}",
+            f"Section: {article.get('section', '') or 'Other'}",
+            "Removed:",
+        ])
+
+        for item in article["removed_items"]:
+            lines.append(f"- {item['reason']}: {item['text']}")
+
+    if errors:
+        lines.extend([
+            "",
+            "Files not processed:",
+        ])
+
+        for filename, error in errors:
+            lines.append(f"- {filename}: {error}")
+
+    readme_path.write_text("\n".join(lines), encoding="utf-8")
+    print("README_2 created:", readme_path)
+
+
+def main():
+    counters = Counter()
+    year_counters = Counter()
+    source_counters = Counter()
+    filename_counters = defaultdict(int)
+    errors = []
+
+    docx_files = sorted({path.resolve() for path in PASTA_ENTRADA.glob("*.docx") if path.is_file()})
+
+    if not docx_files:
+        print("No DOCX files found in:", PASTA_ENTRADA)
+        return
+
+    articles = []
+
+    print("Scanning DOCX files...")
+
+    for docx_path in docx_files:
+        try:
+            article = parse_nexis_docx(docx_path)
+            articles.append(article)
+        except StopIteration:
+            errors.append((docx_path.name, "Body not found"))
+            print("ERROR: Body not found in:", docx_path.name)
+        except Exception as error:
+            errors.append((docx_path.name, str(error)))
+            print("ERROR in:", docx_path.name)
+            print(error)
+
+    section_counts = Counter(
+        article["section_label"]
+        for article in articles
+        if article["section_label"] != "Other"
+    )
+
+    print("Saving XML files...")
+
+    for article in articles:
+        article["final_section"] = choose_final_section(article, section_counts)
+        output_path = build_output_path(PASTA_SAIDA, article, filename_counters)
+
+        article["output_path"] = output_path
+        article["output_filename"] = output_path.name
+
+        save_xml(article, output_path)
+
+        counters[article["final_section"]] += 1
+        year_counters[article["year"]] += 1
+        source_counters[article["source_prefix"]] += 1
 
         print("Created:", output_path)
 
-    except StopIteration:
-        print("ERROR: Body not found in:", docx_path.name)
-
-    except Exception as error:
-        print("ERROR in:", docx_path.name)
-        print(error)
-
-save_readme(PASTA_SAIDA, counters, year_counters)
+    save_readme(PASTA_SAIDA, articles, counters, year_counters, source_counters, errors)
+    save_removal_readme(PASTA_SAIDA, articles, errors)
 
 
+if __name__ == "__main__":
+    main()
