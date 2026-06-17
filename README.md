@@ -180,7 +180,17 @@ It normalizes:
 - repeated spaces;
 - non-breaking spaces;
 - invisible Unicode characters;
-- leading and trailing spaces.
+- leading and trailing spaces;
+- common mojibake produced by encoding problems.
+
+The mojibake repair step is conservative and targets typical broken UTF-8 sequences found in Nexis exports. For example:
+
+```text
+ZÃºÃ±iga -> Zúñiga
+AntÃ³nio -> António
+SÃ£o Paulo -> São Paulo
+FranÃ§ois -> François
+```
 
 ## XML Format
 

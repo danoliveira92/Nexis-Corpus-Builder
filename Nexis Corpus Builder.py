@@ -7,6 +7,7 @@ import re
 from docx import Document
 
 
+SCRIPT_VERSION = "2026-06-17 guardian-heading-fix"
 MIN_ARTICLES_FOR_SECTION_FOLDER = 3
 
 input_folder = input("Paste the folder containing the DOCX files: ").strip().strip('"')
@@ -20,6 +21,12 @@ corpus_name = re.sub(r'[<>:"/\\|?*]+', "_", corpus_name)
 
 PASTA_ENTRADA = Path(input_folder)
 PASTA_SAIDA = Path(output_parent) / corpus_name
+
+if PASTA_SAIDA.exists() and any(PASTA_SAIDA.iterdir()):
+    raise SystemExit(
+        f"Output corpus folder already exists and is not empty: {PASTA_SAIDA}\n"
+        "Choose a new corpus name or manually delete/rename the existing folder before running again."
+    )
 
 PASTA_SAIDA.mkdir(parents=True, exist_ok=True)
 
@@ -72,7 +79,13 @@ GUARDIAN_REMOVE_SECTION_HEADINGS = {
     "southern frontlines",
     "in pictures",
     "read this",
+    "the world in brief",
 }
+
+GUARDIAN_REMOVE_SECTION_PREFIXES = [
+    "read this:",
+    "the world in brief",
+]
 
 
 GENERIC_BOILERPLATE_STARTS = [
@@ -81,7 +94,30 @@ GENERIC_BOILERPLATE_STARTS = [
 ]
 
 
+
+def fix_mojibake(text):
+    text = str(text)
+    mojibake_fragment = re.compile(r"[\u00c2\u00c3][\u0080-\u00ff\u0192]+")
+
+    def repair_fragment(match):
+        current = match.group(0)
+
+        for _ in range(3):
+            try:
+                fixed = current.encode("cp1252").decode("utf-8")
+            except UnicodeError:
+                break
+
+            if fixed == current:
+                break
+
+            current = fixed
+
+        return current
+
+    return mojibake_fragment.sub(repair_fragment, text)
 def normalize_text(text):
+    text = fix_mojibake(str(text))
     text = text.replace("\r\n", "\n")
     text = text.replace("\r", "\n")
     text = text.replace("\xa0", " ")
@@ -290,6 +326,25 @@ def clean_metadata_paragraphs(paragraphs, removed_items):
     return cleaned
 
 
+
+def is_guardian_remove_section_heading(paragraph):
+    lower = simplify_for_matching(paragraph)
+    first_line = simplify_for_matching(paragraph.split("\n", 1)[0])
+
+    candidates = [lower, first_line]
+
+    for candidate in candidates:
+        if candidate in GUARDIAN_REMOVE_SECTION_HEADINGS:
+            return True
+
+        if any(candidate.startswith(f"{heading}:") for heading in GUARDIAN_REMOVE_SECTION_HEADINGS):
+            return True
+
+        if any(candidate.startswith(prefix) for prefix in GUARDIAN_REMOVE_SECTION_PREFIXES):
+            return True
+
+    return False
+
 def clean_body_paragraphs(paragraphs, source_type, removed_items):
     cleaned = []
     index = 0
@@ -301,6 +356,27 @@ def clean_body_paragraphs(paragraphs, source_type, removed_items):
             index += 1
             continue
 
+        if source_type == "guardian" and is_guardian_remove_section_heading(paragraph):
+            heading = paragraph
+            log_removal(removed_items, "Guardian section heading", heading)
+
+            if index + 1 < len(paragraphs):
+                following_paragraph = normalize_text(paragraphs[index + 1])
+
+                if is_guardian_remove_section_heading(following_paragraph):
+                    index += 1
+                else:
+                    log_removal(
+                        removed_items,
+                        f"Guardian paragraph after section heading: {heading}",
+                        following_paragraph,
+                    )
+                    index += 2
+            else:
+                index += 1
+
+            continue
+
         reason = generic_removal_reason(paragraph)
 
         if not reason:
@@ -309,23 +385,6 @@ def clean_body_paragraphs(paragraphs, source_type, removed_items):
         if reason:
             log_removal(removed_items, reason, paragraph)
             index += 1
-            continue
-
-        if source_type == "guardian" and simplify_for_matching(paragraph) in GUARDIAN_REMOVE_SECTION_HEADINGS:
-            heading = paragraph
-            log_removal(removed_items, "Guardian section heading", heading)
-
-            if index + 1 < len(paragraphs):
-                following_paragraph = paragraphs[index + 1]
-                log_removal(
-                    removed_items,
-                    f"Guardian paragraph after section heading: {heading}",
-                    following_paragraph,
-                )
-                index += 2
-            else:
-                index += 1
-
             continue
 
         cleaned.append(paragraph)
@@ -595,6 +654,9 @@ def save_removal_readme(output_folder, articles, errors):
 
 
 def main():
+    print(f"Nexis Corpus Builder version: {SCRIPT_VERSION}")
+    print(f"Running script: {Path(__file__).resolve()}")
+
     counters = Counter()
     year_counters = Counter()
     source_counters = Counter()
