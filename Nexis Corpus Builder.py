@@ -104,18 +104,29 @@ def normalize_text(text):
         text = text.replace(char, "")
 
     replacements = {
-        "Ã¢â‚¬â€œ": "-",
-        "Ã¢Ë†â€™": "-",
-        "Ã¢â‚¬â€": "-",
-        "Ã¢â‚¬Â": "-",
-        "Ã¢â‚¬Å“": '"',
-        "Ã¢â‚¬Â": '"',
-        "Ã¢â‚¬Â³": '"',
+        "\u2013": "-",
+        "\u2212": "-",
+        "\u2014": "-",
+        "\u2010": "-",
+        "-": "-",
+        "\u201c": '"',
+        "\u201d": '"',
+        "\u2033": '"',
         "''": '"',
-        "Ã¢â‚¬Ëœ": "'",
-        "Ã¢â‚¬â„¢": "'",
+        "\u2018": "'",
+        "\u2019": "'",
         "`": "'",
-        "Ã‚Â´": "'",
+        "\u00b4": "'",
+        "\u00e2\u20ac\u201c": "-",
+        "\u00e2\u02c6\u2019": "-",
+        "\u00e2\u20ac\u201d": "-",
+        "\u00e2\u20ac\u0090": "-",
+        "\u00e2\u20ac\u0153": '"',
+        "\u00e2\u20ac\u009d": '"',
+        "\u00e2\u20ac\u00b3": '"',
+        "\u00e2\u20ac\u02dc": "'",
+        "\u00e2\u20ac\u2122": "'",
+        "\u00c2\u00b4": "'",
     }
 
     for old, new in replacements.items():
@@ -266,7 +277,7 @@ def save_readme(output_folder, category_counters, year_counters):
         lines.append(f"- {year}: {year_counters[year]}")
 
     readme_path.write_text("\n".join(lines), encoding="utf-8")
-    print("README criado:", readme_path)
+    print("README created:", readme_path)
 
 def next_output_path(base_folder, category, counters):
     folder_name = CATEGORY_FOLDERS.get(category, category)
@@ -381,13 +392,13 @@ for docx_path in sorted(docx_files):
 
         save_xml(data, output_path)
 
-        print("Criado:", output_path)
+        print("Created:", output_path)
 
     except StopIteration:
-        print("ERRO: Body nÃƒÂ£o encontrado em:", docx_path.name)
+        print("ERROR: Body not found in:", docx_path.name)
 
     except Exception as error:
-        print("ERRO em:", docx_path.name)
+        print("ERROR in:", docx_path.name)
         print(error)
 
 save_readme(PASTA_SAIDA, counters, year_counters)
