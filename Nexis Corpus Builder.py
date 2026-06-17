@@ -5,16 +5,15 @@ import re
 from datetime import datetime
 
 
-PASTA_ENTRADA = Path(
-    r"C:\Users\danal\OneDrive\Documentos\Lancaster\Python\Primeiro projeto\Files (500)"
-)
+from pathlib import Path
 
-PASTA_SAIDA = Path(
-    r"C:\Users\danal\OneDrive\Documentos\Lancaster\Python\Primeiro projeto\CORPUS_XML"
-)
+input_folder = input("Paste the folder containing the DOCX files: ").strip()
+output_folder = input("Paste the folder where XML files should be saved: ").strip()
 
-PASTA_SAIDA.mkdir(exist_ok=True)
+PASTA_ENTRADA = Path(input_folder)
+PASTA_SAIDA = Path(output_folder)
 
+PASTA_SAIDA.mkdir(parents=True, exist_ok=True)
 
 SECTION_MAP = {
     "sports": "Sport",
