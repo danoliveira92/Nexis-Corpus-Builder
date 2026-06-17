@@ -7,11 +7,17 @@ from datetime import datetime
 
 from pathlib import Path
 
-input_folder = input("Paste the folder containing the DOCX files: ").strip()
-output_folder = input("Paste the folder where XML files should be saved: ").strip()
+input_folder = input("Paste the folder containing the DOCX files: ").strip().strip('"')
+output_parent = input("Paste the folder where the corpus folder should be created: ").strip().strip('"')
+corpus_name = input("Name this corpus: ").strip()
+
+if not corpus_name:
+    corpus_name = "CORPUS_XML"
+
+corpus_name = re.sub(r'[<>:"/\\|?*]+', "_", corpus_name)
 
 PASTA_ENTRADA = Path(input_folder)
-PASTA_SAIDA = Path(output_folder)
+PASTA_SAIDA = Path(output_parent) / corpus_name
 
 PASTA_SAIDA.mkdir(parents=True, exist_ok=True)
 
