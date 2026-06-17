@@ -1,0 +1,7 @@
+﻿Files*/
+CORPUS_XML/
+XML/
+*.docx
+*.DOCX
+__pycache__/
+*.pyc
