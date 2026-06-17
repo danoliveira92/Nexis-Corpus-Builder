@@ -5,7 +5,7 @@ import re
 from datetime import datetime
 
 
-from pathlib import Path
+
 
 input_folder = input("Paste the folder containing the DOCX files: ").strip().strip('"')
 output_parent = input("Paste the folder where the corpus folder should be created: ").strip().strip('"')
